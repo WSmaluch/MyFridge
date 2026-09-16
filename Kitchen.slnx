@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Kitchen.Core/Kitchen.Core.csproj" />
+    <Project Path="src/Kitchen.Infrastructure/Kitchen.Infrastructure.csproj" />
+    <Project Path="src/Kitchen.Web/Kitchen.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Kitchen.Tests/Kitchen.Tests.csproj" />
+  </Folder>
+</Solution>

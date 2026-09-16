@@ -1,0 +1,43 @@
+name: Deploy static Blazor WebAssembly to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet publish src/Kitchen.Web/Kitchen.Web.csproj -c Release -o publish
+      - name: Configure repository base path
+        shell: bash
+        run: |
+          repository="${GITHUB_REPOSITORY#*/}"
+          owner="${GITHUB_REPOSITORY%/*}"
+          base="/${repository}/"
+          if [ "${repository}" = "${owner}.github.io" ]; then base="/"; fi
+          sed -i "s|<base href=\"/\" />|<base href=\"${base}\" />|" publish/wwwroot/index.html
+          sed -i "s|__BASE_HREF__|${base}|" publish/wwwroot/404.html
+          touch publish/wwwroot/.nojekyll
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: publish/wwwroot
+      - id: deployment
+        uses: actions/deploy-pages@v4

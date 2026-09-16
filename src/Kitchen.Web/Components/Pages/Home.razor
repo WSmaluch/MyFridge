@@ -1,0 +1,14 @@
+@page "/"
+@inject KitchenApplicationService Kitchen
+@inject IUnitConversionService Units
+<PageTitle>Moja Kuchnia</PageTitle>
+@if (loading) { <div class="skeleton hero-skeleton"></div><div class="skeleton row-skeleton"></div><div class="skeleton row-skeleton"></div> }
+else {
+<section class="hero"><p class="eyebrow">DZIEŃ DOBRY</p><h1>Cześć 👋<br /><em>Co dziś gotujemy?</em></h1><a class="scan-button" href="receipt"><span>📸</span><span><strong>Zeskanuj paragon</strong><small>Dodaj zakupy w kilka chwil</small></span><b>→</b></a></section>
+<section class="section-head"><h2>Co masz w domu</h2><a href="products">Zobacz wszystko</a></section><div class="product-strip">@foreach (var product in products.Take(5)) { <a href="@($"products/{product.ProductId}")" class="mini-card"><span class="food-icon">@Icon(product.Category)</span><strong>@product.Name</strong><small>@Units.Format(product.Quantity, product.Unit)</small></a> }</div>
+<section class="section-head"><h2>Co możesz ugotować</h2><a href="recipes">Wszystkie</a></section>@if (recipes.Count == 0) { <div class="empty">🍳 <strong>Dodaj produkty, a podpowiem co ugotować.</strong></div> } else { <div class="recipe-list">@foreach (var recipe in recipes.Take(2)) { <a href="@($"recipes/{recipe.RecipeId}")" class="recipe-row"><span>🍝</span><span><strong>@recipe.Name</strong><small>@recipe.TimeMinutes min · @recipe.Servings porcje</small></span><b>→</b></a> }</div> }
+<section class="section-head"><h2>Lista zakupów</h2><a href="shopping">Otwórz</a></section><div class="shopping-preview">@foreach (var item in shopping.Where(x => !x.Checked).Take(3)) { <div><span class="check"></span><span>@item.ProductName</span><small>@item.Quantity @item.Unit</small></div> }</div>
+}
+@code { private bool loading = true; private IReadOnlyList<Product> products = []; private IReadOnlyList<Recipe> recipes = []; private IReadOnlyList<ShoppingItem> shopping = [];
+protected override async Task OnInitializedAsync() { products = await Kitchen.GetProductsAsync(); recipes = await Kitchen.GetRecipesAsync(); shopping = await Kitchen.GetShoppingAsync(); loading = false; }
+private static string Icon(string category) => category switch { "Nabiał" => "🥛", "Mięso" => "🍗", "Warzywa" => "🥕", "Makaron i ryż" => "🍝", _ => "🍽" }; }

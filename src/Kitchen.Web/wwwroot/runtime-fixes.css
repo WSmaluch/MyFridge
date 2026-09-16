@@ -1,0 +1,20 @@
+/* The runtime reveals this element by setting display:block after a real fatal error. */
+#blazor-error-ui {
+  display: none;
+  position: fixed;
+  z-index: 1000;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 0.85rem 1rem;
+  background: #fff4d4;
+  color: #513b00;
+  box-shadow: 0 -4px 18px #2e40232b;
+  text-align: center;
+}
+
+#blazor-error-ui .dismiss { cursor: pointer; margin-left: 0.75rem; }
+
+/* Prevent the large greeting's ascenders from touching the top edge on compact viewports. */
+.hero { padding-top: 32px; }
+.hero h1 { line-height: 1.14; padding-top: 2px; overflow: visible; }

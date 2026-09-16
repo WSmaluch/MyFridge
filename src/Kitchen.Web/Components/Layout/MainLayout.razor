@@ -1,0 +1,19 @@
+﻿@inherits LayoutComponentBase
+
+<div class="app-shell">
+    <header class="app-header"><a href="" class="brand" aria-label="Moja Kuchnia — start"><span>✦</span> Moja Kuchnia</a><a href="more" class="icon-button" aria-label="Więcej ustawień">☼</a></header>
+    <main class="content">@Body</main>
+    <nav class="bottom-nav" aria-label="Główna nawigacja">
+        <NavLink href="" Match="NavLinkMatch.All"><span>⌂</span>Start</NavLink>
+        <NavLink href="products"><span>🥕</span>Produkty</NavLink>
+        <NavLink href="recipes"><span>🍳</span>Przepisy</NavLink>
+        <NavLink href="shopping"><span>🛒</span>Zakupy</NavLink>
+        <NavLink href="more"><span>☼</span>Więcej</NavLink>
+    </nav>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>

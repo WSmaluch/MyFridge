@@ -1,0 +1,13 @@
+@page "/setup"
+@inject ILocalSettingsService Settings
+@inject IAppModeStore Mode
+@inject IGoogleAuthService Google
+@inject GoogleSheetsInitializer Initializer
+@inject NavigationManager Navigation
+
+<PageTitle>Konfiguracja — Moja Kuchnia</PageTitle>
+<div class="setup-page"><p class="eyebrow">PIERWSZE URUCHOMIENIE</p><h1>Witaj w Mojej Kuchni</h1><p class="hint">Wybierz, gdzie aplikacja ma przechowywać dane. Możesz zmienić tę decyzję później w ustawieniach.</p><section class="form-card setup-card"><h2>1. Wybierz tryb</h2><div class="theme-options"><button class="@(google ? "" : "selected")" @onclick="() => google = false">Demo</button><button class="@(google ? "selected" : "")" @onclick="() => google = true">Google Sheets</button></div></section>@if (google) { <section class="form-card setup-card"><h2>2. Połącz Google</h2><label>Spreadsheet ID<input @bind="draft.SpreadsheetId" placeholder="ID z adresu arkusza" /></label><label>Google OAuth Client ID<input @bind="draft.GoogleClientId" placeholder="…apps.googleusercontent.com" /></label><label>Gemini API Key <span class="hint">(opcjonalnie)</span><input type="password" @bind="draft.GeminiApiKey" autocomplete="off" /></label><label>Model Gemini<input @bind="draft.GeminiModel" /></label></section>}<section class="form-card setup-card"><h2>3. Zapisz i sprawdź</h2><button class="button wide" disabled="@busy" @onclick="FinishAsync">@(google ? "Zapisz i połącz Google" : "Uruchom tryb Demo")</button></section>@if (!string.IsNullOrEmpty(message)) { <p class="notice @(error ? "error" : "")">@message</p> }</div>
+@code {
+    private KitchenSettings draft = new() { GeminiModel = "gemini-2.5-flash" }; private bool google; private bool busy; private bool error; private string? message;
+    private async Task FinishAsync() { busy = true; error = false; message = null; try { if (!google) { await Mode.SetModeAsync(DataMode.Demo); Navigation.NavigateTo("", true); return; } if (!draft.IsGoogleConfigured) throw new InvalidOperationException("Podaj Spreadsheet ID i Google OAuth Client ID."); await Settings.SaveAsync(draft); await Google.ConnectAsync(); if (!Google.IsConnected) throw new InvalidOperationException(Google.ErrorMessage ?? "Nie udało się połączyć z Google."); await Initializer.InitializeAsync(); await Mode.SetModeAsync(DataMode.GoogleSheets); Navigation.NavigateTo("", true); } catch (Exception ex) { error = true; message = ex.Message; } finally { busy = false; } }
+}

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <base href="/" />
+  <meta name="theme-color" content="#537452" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://sheets.googleapis.com https://generativelanguage.googleapis.com https://accounts.google.com; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://accounts.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src https://accounts.google.com;" />
+  <link rel="preload" id="webassembly" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="stylesheet" href="runtime-fixes.css" />
+  <link rel="stylesheet" href="Kitchen.Web.styles.css" />
+  <link rel="icon" type="image/png" href="favicon.png" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <script type="importmap"></script>
+  <title>Moja Kuchnia</title>
+</head>
+<body>
+  <div id="app">Uruchamianie Mojej Kuchni…</div>
+  <div id="blazor-error-ui" data-nosnippet>Wystąpił nieoczekiwany błąd. <a href="." class="reload">Odśwież</a><span class="dismiss">🗙</span></div>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="js/storage.js"></script>
+  <script src="js/googleAuth.js"></script>
+  <script src="app.js"></script>
+  <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>
+</body>
+</html>

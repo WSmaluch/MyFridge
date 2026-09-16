@@ -1,0 +1,29 @@
+@inject ILocalSettingsService Settings
+@inject IAppModeStore Mode
+@inject InMemoryKitchenStore DemoStore
+@inject NavigationManager Navigation
+
+@if (!_ready)
+{
+    <div class="app-loading" role="status">Uruchamianie Mojej Kuchni…</div>
+}
+else
+{
+    <Routes />
+}
+
+@code {
+    private bool _ready;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Settings.LoadAsync();
+        await Mode.LoadAsync();
+        await DemoSeed.SeedAsync(DemoStore);
+        _ready = true;
+
+        var path = new Uri(Navigation.Uri).AbsolutePath.TrimEnd('/');
+        if (Mode.Mode == DataMode.Unset && !path.EndsWith("/setup", StringComparison.OrdinalIgnoreCase))
+            Navigation.NavigateTo("setup", replace: true);
+    }
+}

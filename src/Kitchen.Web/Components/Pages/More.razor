@@ -1,0 +1,36 @@
+@page "/more"
+@inject IJSRuntime JS
+@inject ILocalSettingsService Settings
+@inject IAppModeStore Mode
+@inject IGoogleAuthService Google
+@inject GoogleSheetsRestClient Sheets
+@inject GoogleSheetsInitializer Initializer
+@inject BrowserGeminiService Gemini
+@inject NavigationManager Navigation
+
+<PageTitle>Ustawienia — Moja Kuchnia</PageTitle>
+<div class="page-title"><div><p class="eyebrow">USTAWIENIA</p><h1>Twoja kuchnia</h1></div></div>
+<section class="form-card settings-card"><h2>Źródło danych</h2><p class="hint">Demo działa bez kont i sieci. Google Sheets zapisuje dane w Twoim własnym arkuszu.</p><div class="theme-options"><button class="@(Mode.Mode == DataMode.Demo ? "selected" : "")" @onclick="UseDemoAsync">Demo</button><button class="@(Mode.Mode == DataMode.GoogleSheets ? "selected" : "")" @onclick="UseGoogleAsync">Google Sheets</button></div></section>
+<section class="form-card settings-card"><h2>Google Sheets</h2><label>Spreadsheet ID<input @bind="draft.SpreadsheetId" placeholder="ID z adresu arkusza" /></label><label>Google OAuth Client ID<input @bind="draft.GoogleClientId" placeholder="…apps.googleusercontent.com" /></label><div class="actions"><button class="button" disabled="@busy" @onclick="SaveAsync">Zapisz lokalnie</button><button class="ghost" disabled="@busy" @onclick="ConnectAsync">@ConnectionLabel</button></div><div class="actions"><button class="secondary-button" disabled="@busy" @onclick="CheckSheetAsync">Sprawdź arkusz</button><button class="ghost" disabled="@busy" @onclick="InitializeAsync">Utwórz układ kart</button></div></section>
+<section class="form-card settings-card"><h2>Gemini</h2><label>Gemini API Key<div class="secret-field"><input type="@(_showKey ? "text" : "password")" @bind="draft.GeminiApiKey" placeholder="AIza…" autocomplete="off" /><button type="button" class="ghost" @onclick="ToggleKey">@(_showKey ? "Ukryj" : "Pokaż")</button></div></label><label>Model<input @bind="draft.GeminiModel" placeholder="gemini-2.5-flash" /></label><div class="actions"><button class="button" disabled="@busy" @onclick="SaveAsync">Zapisz lokalnie</button><button class="ghost" disabled="@busy" @onclick="TestGeminiAsync">Test Gemini</button></div></section>
+<section class="form-card settings-card"><h2>Wygląd</h2><div class="theme-options"><button @onclick='() => Theme("system")'>System</button><button @onclick='() => Theme("light")'>Jasny</button><button @onclick='() => Theme("dark")'>Ciemny</button></div></section>
+<section class="form-card settings-card danger-zone"><h2>Reset</h2><p class="hint">Usuwa z tej przeglądarki ustawienia połączenia i klucz Gemini. Nie usuwa danych z Google Sheets.</p><button class="ghost danger" @onclick="ClearAsync">Wyczyść ustawienia lokalne</button></section>
+@if (!string.IsNullOrEmpty(message)) { <p class="notice @(error ? "error" : "")">@message</p> }
+
+@code {
+    private KitchenSettings draft = new(); private bool busy; private bool error; private bool _showKey; private string? message;
+    private string ConnectionLabel => Google.IsConnected ? "Rozłącz Google" : "Połącz z Google";
+    protected override void OnInitialized() => draft = Copy(Settings.Current);
+    private ValueTask Theme(string theme) => JS.InvokeVoidAsync("kitchenTheme.set", theme);
+    private void ToggleKey() => _showKey = !_showKey;
+    private async Task SaveAsync() { await Work(async () => { await Settings.SaveAsync(Copy(draft)); message = "Ustawienia zapisane lokalnie w tej przeglądarce."; }); }
+    private async Task ConnectAsync() { await Work(async () => { await Settings.SaveAsync(Copy(draft)); if (Google.IsConnected) { await Google.DisconnectAsync(); message = "Odłączono konto Google."; } else { await Google.ConnectAsync(); message = Google.IsConnected ? "Połączono z Google. Token pozostaje tylko w pamięci tej karty." : Google.ErrorMessage; error = !Google.IsConnected; } }); }
+    private async Task CheckSheetAsync() { await Work(async () => { await Settings.SaveAsync(Copy(draft)); await Google.ConnectAsync(); await Sheets.EnsureAccessAsync(); message = "Arkusz jest dostępny dla zalogowanego konta Google."; }); }
+    private async Task InitializeAsync() { await Work(async () => { await Settings.SaveAsync(Copy(draft)); await Google.ConnectAsync(); await Initializer.InitializeAsync(); message = "Gotowe: utworzono wymagane karty i nagłówki w arkuszu."; }); }
+    private async Task TestGeminiAsync() { await Work(async () => { await Settings.SaveAsync(Copy(draft)); await Gemini.TestAsync(); message = "Gemini odpowiedział poprawnie."; }); }
+    private async Task UseDemoAsync() { await Mode.SetModeAsync(DataMode.Demo); message = "Włączono dane demonstracyjne."; }
+    private async Task UseGoogleAsync() { await Work(async () => { await Settings.SaveAsync(Copy(draft)); if (!Settings.Current.IsGoogleConfigured) throw new InvalidOperationException("Uzupełnij Spreadsheet ID oraz Google OAuth Client ID."); await Mode.SetModeAsync(DataMode.GoogleSheets); message = "Włączono Google Sheets. Połącz konto przed pierwszym odczytem danych."; }); }
+    private async Task ClearAsync() { await Google.DisconnectAsync(); await Settings.ClearAsync(); await Mode.SetModeAsync(DataMode.Unset); Navigation.NavigateTo("setup", true); }
+    private async Task Work(Func<Task> action) { busy = true; error = false; message = null; try { await action(); } catch (Exception ex) { error = true; message = ex.Message; } finally { busy = false; } }
+    private static KitchenSettings Copy(KitchenSettings source) => new() { SpreadsheetId = source.SpreadsheetId, GoogleClientId = source.GoogleClientId, GeminiApiKey = source.GeminiApiKey, GeminiModel = source.GeminiModel };
+}
