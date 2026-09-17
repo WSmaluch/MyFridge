@@ -9,7 +9,20 @@ public sealed class GoogleSheetsRestClient(HttpClient http, IGoogleAuthService a
 {
     public string SpreadsheetId => settings.Current.SpreadsheetId;
     public async Task<JsonDocument> GetAsync(string relativeUrl, CancellationToken ct = default) => await SendAsync(HttpMethod.Get, relativeUrl, null, ct);
-    public async Task<JsonDocument> PostAsync(string relativeUrl, object body, CancellationToken ct = default) => await SendAsync(HttpMethod.Post, relativeUrl, body, ct);
+    public Task<JsonDocument> UpdateValuesAsync(string range, IEnumerable<string[]> values, CancellationToken ct = default)
+    {
+        var url = $"v4/spreadsheets/{Uri.EscapeDataString(SpreadsheetId)}/values/{Uri.EscapeDataString(range)}?valueInputOption=RAW";
+        return SendAsync(HttpMethod.Put, url, ValueRange(range, values), ct);
+    }
+    public Task<JsonDocument> AppendValuesAsync(string range, IEnumerable<string[]> values, CancellationToken ct = default)
+    {
+        var url = $"v4/spreadsheets/{Uri.EscapeDataString(SpreadsheetId)}/values/{Uri.EscapeDataString(range)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS";
+        return SendAsync(HttpMethod.Post, url, ValueRange(range, values), ct);
+    }
+    public Task<JsonDocument> BatchUpdateAsync(object body, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Post, $"v4/spreadsheets/{Uri.EscapeDataString(SpreadsheetId)}:batchUpdate", body, ct);
+    public Task<JsonDocument> ClearValuesAsync(string range, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Post, $"v4/spreadsheets/{Uri.EscapeDataString(SpreadsheetId)}/values/{Uri.EscapeDataString(range)}:clear", new { }, ct);
     public async Task EnsureAccessAsync(CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(SpreadsheetId)) throw new InvalidOperationException("Uzupełnij Spreadsheet ID w ustawieniach.");
@@ -33,6 +46,7 @@ public sealed class GoogleSheetsRestClient(HttpClient http, IGoogleAuthService a
         return JsonDocument.Parse(content);
         }
     }
+    private static object ValueRange(string range, IEnumerable<string[]> values) => new { range, majorDimension = "ROWS", values = values.ToArray() };
     private static string FriendlyError(HttpStatusCode status) => status switch
     {
         HttpStatusCode.Unauthorized => "Sesja Google wygasła. Połącz konto ponownie.",
