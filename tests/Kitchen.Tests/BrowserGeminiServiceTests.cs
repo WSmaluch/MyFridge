@@ -38,13 +38,26 @@ public sealed class BrowserGeminiServiceTests
     public async Task TestAsync_retries_service_unavailable_twice_then_explains_failure()
     {
         var handler = new StubHandler(HttpStatusCode.ServiceUnavailable, "{\"error\":{\"message\":\"Model is overloaded\"}}");
-        var service = new BrowserGeminiService(new HttpClient(handler), new TestSettings());
+        var service = new BrowserGeminiService(new HttpClient(handler), new TestSettings("gemini-2.5-flash"));
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.TestAsync());
 
         Assert.Equal(3, handler.RequestCount);
         Assert.Contains("chwilowo niedostępna (HTTP 503)", exception.Message, StringComparison.Ordinal);
         Assert.Contains("Model is overloaded", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TestAsync_uses_compatible_fallback_after_3_5_flash_is_unavailable()
+    {
+        var handler = new FallbackHandler();
+        var service = new BrowserGeminiService(new HttpClient(handler), new TestSettings());
+
+        await service.TestAsync();
+
+        Assert.Equal(4, handler.Urls.Count);
+        Assert.All(handler.Urls.Take(3), url => Assert.Contains("/gemini-3.5-flash:generateContent", url, StringComparison.Ordinal));
+        Assert.Contains("/gemini-3.8-flash:generateContent", handler.Urls[3], StringComparison.Ordinal);
     }
 
     [Fact]
@@ -74,9 +87,22 @@ public sealed class BrowserGeminiServiceTests
         }
     }
 
-    private sealed class TestSettings : ILocalSettingsService
+    private sealed class FallbackHandler : HttpMessageHandler
     {
-        public KitchenSettings Current { get; } = new() { GeminiApiKey = "test-secret", GeminiModel = "gemini-3.5-flash" };
+        public List<string> Urls { get; } = [];
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Urls.Add(request.RequestUri!.OriginalString);
+            var response = Urls.Count <= 3
+                ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { Content = new StringContent("{\"error\":{\"message\":\"Overloaded\"}}") }
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"{\\\"ok\\\":true}\"}]}}]}") };
+            return Task.FromResult(response);
+        }
+    }
+
+    private sealed class TestSettings(string model = "gemini-3.5-flash") : ILocalSettingsService
+    {
+        public KitchenSettings Current { get; } = new() { GeminiApiKey = "test-secret", GeminiModel = model };
         public Task LoadAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task SaveAsync(KitchenSettings settings, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task ClearAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;

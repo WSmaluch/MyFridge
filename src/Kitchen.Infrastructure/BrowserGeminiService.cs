@@ -35,29 +35,39 @@ public sealed class BrowserGeminiService(HttpClient http, ILocalSettingsService 
         var key = settings.Current.GeminiApiKey;
         if (string.IsNullOrWhiteSpace(key)) throw new InvalidOperationException("Uzupełnij Gemini API Key w ustawieniach.");
         var model = string.IsNullOrWhiteSpace(settings.Current.GeminiModel) ? "gemini-2.5-flash" : settings.Current.GeminiModel.Trim();
-        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{Uri.EscapeDataString(model)}:generateContent";
+        // A transient outage of this model should not block receipt scanning when a compatible model is available.
+        string[] models = model == "gemini-3.5-flash" ? [model, "gemini-3.8-flash"] : [model];
         var body = new { contents = new[] { new { role = "user", parts } }, generationConfig = new { responseMimeType = "application/json", responseJsonSchema = schema, temperature = 0.2 } };
-        for (var attempt = 0; ; attempt++)
+        foreach (var activeModel in models)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = JsonContent.Create(body) };
-            request.Headers.Add("x-goog-api-key", key);
-            HttpResponseMessage response;
-            try { response = await http.SendAsync(request, ct); }
-            catch (HttpRequestException ex) { throw new InvalidOperationException("Nie można połączyć się z Gemini. Sprawdź internet, konfigurację klucza i czy przeglądarka nie blokuje CORS.", ex); }
-            using (response)
+            var url = $"https://generativelanguage.googleapis.com/v1beta/models/{Uri.EscapeDataString(activeModel)}:generateContent";
+            for (var attempt = 0; attempt < 3; attempt++)
             {
-                var text = await response.Content.ReadAsStringAsync(ct);
-                if ((response.StatusCode is HttpStatusCode.ServiceUnavailable or HttpStatusCode.BadGateway or HttpStatusCode.GatewayTimeout) && attempt < 2)
+                using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = JsonContent.Create(body) };
+                request.Headers.Add("x-goog-api-key", key);
+                HttpResponseMessage response;
+                try { response = await http.SendAsync(request, ct); }
+                catch (HttpRequestException ex) { throw new InvalidOperationException("Nie można połączyć się z Gemini. Sprawdź internet, konfigurację klucza i czy przeglądarka nie blokuje CORS.", ex); }
+                using (response)
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(attempt + 1), ct);
-                    continue;
+                    var text = await response.Content.ReadAsStringAsync(ct);
+                    if (response.StatusCode is HttpStatusCode.ServiceUnavailable or HttpStatusCode.BadGateway or HttpStatusCode.GatewayTimeout)
+                    {
+                        if (attempt < 2)
+                        {
+                            await Task.Delay(TimeSpan.FromSeconds(attempt + 1), ct);
+                            continue;
+                        }
+                        if (activeModel != models[^1]) break;
+                    }
+                    if (!response.IsSuccessStatusCode) throw CreateApiException(response.StatusCode, text, activeModel, key);
+                    using var doc = JsonDocument.Parse(text);
+                    var json = doc.RootElement.GetProperty("candidates")[0].GetProperty("content").GetProperty("parts")[0].GetProperty("text").GetString();
+                    return string.IsNullOrWhiteSpace(json) ? default : JsonSerializer.Deserialize<T>(json, Json);
                 }
-                if (!response.IsSuccessStatusCode) throw CreateApiException(response.StatusCode, text, model, key);
-                using var doc = JsonDocument.Parse(text);
-                var json = doc.RootElement.GetProperty("candidates")[0].GetProperty("content").GetProperty("parts")[0].GetProperty("text").GetString();
-                return string.IsNullOrWhiteSpace(json) ? default : JsonSerializer.Deserialize<T>(json, Json);
             }
         }
+        throw new InvalidOperationException("Gemini nie zwrócił odpowiedzi.");
     }
     private static InvalidOperationException CreateApiException(HttpStatusCode status, string body, string model, string key)
     {
