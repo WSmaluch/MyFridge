@@ -61,6 +61,20 @@ public sealed class BrowserGeminiServiceTests
     }
 
     [Fact]
+    public async Task TestAsync_uses_flash_lite_when_both_flash_models_are_unavailable()
+    {
+        var handler = new FallbackHandler(6);
+        var service = new BrowserGeminiService(new HttpClient(handler), new TestSettings());
+
+        await service.TestAsync();
+
+        Assert.Equal(7, handler.Urls.Count);
+        Assert.All(handler.Urls.Take(3), url => Assert.Contains("/gemini-3.5-flash:generateContent", url, StringComparison.Ordinal));
+        Assert.All(handler.Urls.Skip(3).Take(3), url => Assert.Contains("/gemini-3.8-flash:generateContent", url, StringComparison.Ordinal));
+        Assert.Contains("/gemini-3.5-flash-lite:generateContent", handler.Urls[6], StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ParseReceiptAsync_rejects_images_over_inline_limit_before_http_request()
     {
         var handler = new StubHandler(HttpStatusCode.OK, "{}");
@@ -87,13 +101,13 @@ public sealed class BrowserGeminiServiceTests
         }
     }
 
-    private sealed class FallbackHandler : HttpMessageHandler
+    private sealed class FallbackHandler(int failuresBeforeSuccess = 3) : HttpMessageHandler
     {
         public List<string> Urls { get; } = [];
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Urls.Add(request.RequestUri!.OriginalString);
-            var response = Urls.Count <= 3
+            var response = Urls.Count <= failuresBeforeSuccess
                 ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { Content = new StringContent("{\"error\":{\"message\":\"Overloaded\"}}") }
                 : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"{\\\"ok\\\":true}\"}]}}]}") };
             return Task.FromResult(response);

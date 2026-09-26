@@ -35,8 +35,13 @@ public sealed class BrowserGeminiService(HttpClient http, ILocalSettingsService 
         var key = settings.Current.GeminiApiKey;
         if (string.IsNullOrWhiteSpace(key)) throw new InvalidOperationException("Uzupełnij Gemini API Key w ustawieniach.");
         var model = string.IsNullOrWhiteSpace(settings.Current.GeminiModel) ? "gemini-2.5-flash" : settings.Current.GeminiModel.Trim();
-        // A transient outage of this model should not block receipt scanning when a compatible model is available.
-        string[] models = model == "gemini-3.5-flash" ? [model, "gemini-3.8-flash"] : [model];
+        // Try compatible image/structured-output models when a Flash model is temporarily overloaded.
+        string[] models = model switch
+        {
+            "gemini-3.5-flash" => [model, "gemini-3.8-flash", "gemini-3.5-flash-lite"],
+            "gemini-3.8-flash" => [model, "gemini-3.5-flash-lite"],
+            _ => [model]
+        };
         var body = new { contents = new[] { new { role = "user", parts } }, generationConfig = new { responseMimeType = "application/json", responseJsonSchema = schema, temperature = 0.2 } };
         foreach (var activeModel in models)
         {
