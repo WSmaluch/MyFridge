@@ -1,7 +1,8 @@
 ﻿@inherits LayoutComponentBase
+@inject IJSRuntime JS
 
 <div class="app-shell">
-    <header class="app-header"><a href="" class="brand" aria-label="Moja Kuchnia — start"><span>✦</span> Moja Kuchnia</a><a href="more" class="icon-button" aria-label="Więcej ustawień">☼</a></header>
+    <header class="app-header"><a href="" class="brand" aria-label="Moja Kuchnia — start"><span>✦</span> Moja Kuchnia</a><button type="button" class="icon-button" aria-label="Przełącz motyw" title="Przełącz motyw" @onclick="ToggleThemeAsync">☼</button></header>
     <main class="content">@Body</main>
     <nav class="bottom-nav" aria-label="Główna nawigacja">
         <NavLink href="" Match="NavLinkMatch.All"><span>⌂</span>Start</NavLink>
@@ -11,6 +12,10 @@
         <NavLink href="more"><span>☼</span>Więcej</NavLink>
     </nav>
 </div>
+
+@code {
+    private async Task ToggleThemeAsync() => await JS.InvokeVoidAsync("kitchenTheme.toggle");
+}
 
 <div id="blazor-error-ui" data-nosnippet>
     An unhandled error has occurred.

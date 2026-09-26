@@ -18,6 +18,7 @@
 /* Prevent the large greeting's ascenders from touching the top edge on compact viewports. */
 .hero { padding-top: 32px; }
 .hero h1 { line-height: 1.14; padding-top: 2px; overflow: visible; }
+.icon-button { color: var(--text-primary); }
 
 /* Editable controls must use the dark palette too; inherited light text on white fields was unreadable. */
 html[data-theme="dark"] :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea) {
