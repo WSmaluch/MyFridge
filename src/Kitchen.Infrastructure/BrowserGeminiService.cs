@@ -8,10 +8,13 @@ namespace Kitchen.Infrastructure;
 
 public sealed class BrowserGeminiService(HttpClient http, ILocalSettingsService settings) : IGeminiService
 {
+    public const long MaxInlineImageBytes = 14 * 1024 * 1024;
     private static readonly JsonSerializerOptions Json = CreateJsonOptions();
     public async Task<ReceiptParseResult> ParseReceiptAsync(IReadOnlyCollection<UploadedImage> images, CancellationToken ct = default)
     {
         if (images.Count == 0) throw new InvalidOperationException("Dodaj przynajmniej jedno zdjęcie paragonu.");
+        if (images.Sum(image => (long)image.Bytes.Length) > MaxInlineImageBytes)
+            throw new InvalidOperationException("Zdjęcia są łącznie za duże dla Gemini (maks. 14 MB). Wybierz mniej zdjęć lub zmniejsz je.");
         var prompt = "Odczytaj paragon. Zwróć wyłącznie JSON: store, purchaseDate (YYYY-MM-DD lub null), total, currency, items. Każda pozycja: rawName, displayName, normalizedName, quantity (lub null), unit (lub null), unitPrice, totalPrice, category, location (Lodowka|Zamrazarka|Szafka|Inne), confidence 0..1, includeInInventory. Nie wymyślaj ilości. Chemia i kosmetyki mają includeInInventory=false.";
         var parts = new List<object> { new { text = prompt } };
         parts.AddRange(images.Select(x => (object)new { inlineData = new { mimeType = x.MimeType, data = Convert.ToBase64String(x.Bytes) } }));
@@ -31,24 +34,58 @@ public sealed class BrowserGeminiService(HttpClient http, ILocalSettingsService 
     {
         var key = settings.Current.GeminiApiKey;
         if (string.IsNullOrWhiteSpace(key)) throw new InvalidOperationException("Uzupełnij Gemini API Key w ustawieniach.");
-        var model = string.IsNullOrWhiteSpace(settings.Current.GeminiModel) ? "gemini-2.5-flash" : settings.Current.GeminiModel;
+        var model = string.IsNullOrWhiteSpace(settings.Current.GeminiModel) ? "gemini-2.5-flash" : settings.Current.GeminiModel.Trim();
         var url = $"https://generativelanguage.googleapis.com/v1beta/models/{Uri.EscapeDataString(model)}:generateContent";
         var body = new { contents = new[] { new { role = "user", parts } }, generationConfig = new { responseMimeType = "application/json", responseJsonSchema = schema, temperature = 0.2 } };
-        using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = JsonContent.Create(body) };
-        request.Headers.Add("x-goog-api-key", key);
-        HttpResponseMessage response;
-        try { response = await http.SendAsync(request, ct); }
-        catch (HttpRequestException ex) { throw new InvalidOperationException("Nie można połączyć się z Gemini. Sprawdź internet, konfigurację klucza i czy przeglądarka nie blokuje CORS.", ex); }
-        using (response)
+        for (var attempt = 0; ; attempt++)
         {
-        var text = await response.Content.ReadAsStringAsync(ct);
-        if (response.StatusCode == HttpStatusCode.TooManyRequests) throw new InvalidOperationException("Limit Gemini został chwilowo osiągnięty. Spróbuj ponownie za chwilę.");
-        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden) throw new InvalidOperationException("Nieprawidłowy klucz Gemini API.");
-        if (!response.IsSuccessStatusCode) throw new InvalidOperationException("Gemini jest chwilowo niedostępne. Spróbuj ponownie.");
-        using var doc = JsonDocument.Parse(text);
-        var json = doc.RootElement.GetProperty("candidates")[0].GetProperty("content").GetProperty("parts")[0].GetProperty("text").GetString();
-        return string.IsNullOrWhiteSpace(json) ? default : JsonSerializer.Deserialize<T>(json, Json);
+            using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = JsonContent.Create(body) };
+            request.Headers.Add("x-goog-api-key", key);
+            HttpResponseMessage response;
+            try { response = await http.SendAsync(request, ct); }
+            catch (HttpRequestException ex) { throw new InvalidOperationException("Nie można połączyć się z Gemini. Sprawdź internet, konfigurację klucza i czy przeglądarka nie blokuje CORS.", ex); }
+            using (response)
+            {
+                var text = await response.Content.ReadAsStringAsync(ct);
+                if ((response.StatusCode is HttpStatusCode.ServiceUnavailable or HttpStatusCode.BadGateway or HttpStatusCode.GatewayTimeout) && attempt < 2)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(attempt + 1), ct);
+                    continue;
+                }
+                if (!response.IsSuccessStatusCode) throw CreateApiException(response.StatusCode, text, model, key);
+                using var doc = JsonDocument.Parse(text);
+                var json = doc.RootElement.GetProperty("candidates")[0].GetProperty("content").GetProperty("parts")[0].GetProperty("text").GetString();
+                return string.IsNullOrWhiteSpace(json) ? default : JsonSerializer.Deserialize<T>(json, Json);
+            }
         }
+    }
+    private static InvalidOperationException CreateApiException(HttpStatusCode status, string body, string model, string key)
+    {
+        string? detail = null;
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.TryGetProperty("error", out var error) && error.TryGetProperty("message", out var message))
+                detail = message.GetString();
+        }
+        catch (JsonException) { /* The status code remains useful when the server returns non-JSON. */ }
+        if (!string.IsNullOrEmpty(detail))
+        {
+            detail = detail.Replace(key, "[ukryty klucz]", StringComparison.Ordinal)
+                .Replace('\r', ' ').Replace('\n', ' ');
+            if (detail.Length > 300) detail = detail[..300] + "…";
+        }
+        var prefix = status switch
+        {
+            HttpStatusCode.BadRequest => "Gemini odrzucił żądanie (400).",
+            HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => "Brak dostępu do Gemini (401/403). Sprawdź klucz API, ograniczenia i dostępność modelu.",
+            HttpStatusCode.NotFound => $"Model Gemini „{model}” jest niedostępny (404). Sprawdź model w ustawieniach.",
+            HttpStatusCode.RequestEntityTooLarge => "Zdjęcia są za duże dla Gemini (413).",
+            HttpStatusCode.TooManyRequests => "Limit Gemini został osiągnięty (429). Spróbuj ponownie później.",
+            HttpStatusCode.ServiceUnavailable or HttpStatusCode.BadGateway or HttpStatusCode.GatewayTimeout => $"Usługa Gemini dla modelu „{model}” jest chwilowo niedostępna (HTTP {(int)status}). Spróbuj później albo wybierz inny model w ustawieniach.",
+            _ => $"Gemini zwrócił błąd HTTP {(int)status}."
+        };
+        return new InvalidOperationException(string.IsNullOrWhiteSpace(detail) ? prefix : $"{prefix} {detail}");
     }
     private static JsonSerializerOptions CreateJsonOptions() { var options = new JsonSerializerOptions(JsonSerializerDefaults.Web) { PropertyNameCaseInsensitive = true }; options.Converters.Add(new JsonStringEnumConverter()); return options; }
     private static readonly object ReceiptSchema = new { type = "object", properties = new { store = new { type = new[] { "string", "null" } }, purchaseDate = new { type = new[] { "string", "null" } }, total = new { type = new[] { "number", "null" } }, currency = new { type = "string" }, items = new { type = "array", items = new { type = "object", properties = new { rawName = new { type = "string" }, displayName = new { type = "string" }, normalizedName = new { type = "string" }, quantity = new { type = new[] { "number", "null" } }, unit = new { type = new[] { "string", "null" } }, unitPrice = new { type = new[] { "number", "null" } }, totalPrice = new { type = new[] { "number", "null" } }, category = new { type = "string" }, location = new { type = "string", @enum = new[] { "Lodowka", "Zamrazarka", "Szafka", "Inne" } }, confidence = new { type = "number" }, includeInInventory = new { type = "boolean" } }, required = new[] { "rawName", "displayName", "normalizedName", "quantity", "unit", "category", "location", "confidence", "includeInInventory" } } } }, required = new[] { "currency", "items" } };
