@@ -9,6 +9,7 @@ namespace Kitchen.Infrastructure;
 public sealed class BrowserGeminiService(HttpClient http, ILocalSettingsService settings) : IGeminiService
 {
     public const long MaxInlineImageBytes = 14 * 1024 * 1024;
+    private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(60);
     private static readonly JsonSerializerOptions Json = CreateJsonOptions();
     public async Task<ReceiptParseResult> ParseReceiptAsync(IReadOnlyCollection<UploadedImage> images, CancellationToken ct = default)
     {
@@ -50,12 +51,12 @@ public sealed class BrowserGeminiService(HttpClient http, ILocalSettingsService 
             {
                 using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = JsonContent.Create(body) };
                 request.Headers.Add("x-goog-api-key", key);
-                HttpResponseMessage response;
-                try { response = await http.SendAsync(request, ct); }
-                catch (HttpRequestException ex) { throw new InvalidOperationException("Nie można połączyć się z Gemini. Sprawdź internet, konfigurację klucza i czy przeglądarka nie blokuje CORS.", ex); }
-                using (response)
+                using var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                requestTimeout.CancelAfter(RequestTimeout);
+                try
                 {
-                    var text = await response.Content.ReadAsStringAsync(ct);
+                    using var response = await http.SendAsync(request, requestTimeout.Token);
+                    var text = await response.Content.ReadAsStringAsync(requestTimeout.Token);
                     if (response.StatusCode is HttpStatusCode.ServiceUnavailable or HttpStatusCode.BadGateway or HttpStatusCode.GatewayTimeout)
                     {
                         if (attempt < 2)
@@ -70,6 +71,12 @@ public sealed class BrowserGeminiService(HttpClient http, ILocalSettingsService 
                     var json = doc.RootElement.GetProperty("candidates")[0].GetProperty("content").GetProperty("parts")[0].GetProperty("text").GetString();
                     return string.IsNullOrWhiteSpace(json) ? default : JsonSerializer.Deserialize<T>(json, Json);
                 }
+                catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+                {
+                    if (activeModel != models[^1]) break;
+                    throw new InvalidOperationException($"Model Gemini „{activeModel}” nie odpowiedział w ciągu {RequestTimeout.TotalSeconds:0} sekund. Spróbuj ponownie później lub wybierz inny model.", ex);
+                }
+                catch (HttpRequestException ex) { throw new InvalidOperationException("Nie można połączyć się z Gemini. Sprawdź internet, konfigurację klucza i czy przeglądarka nie blokuje CORS.", ex); }
             }
         }
         throw new InvalidOperationException("Gemini nie zwrócił odpowiedzi.");

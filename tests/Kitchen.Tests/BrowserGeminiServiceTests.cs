@@ -15,6 +15,7 @@ public sealed class BrowserGeminiServiceTests
         await service.TestAsync();
 
         Assert.Equal("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent", handler.Url);
+        Assert.True(handler.RequestTokenCanBeCanceled);
         Assert.Contains("\"responseJsonSchema\"", handler.Body, StringComparison.Ordinal);
         Assert.DoesNotContain("test-secret", handler.Body, StringComparison.Ordinal);
     }
@@ -75,6 +76,31 @@ public sealed class BrowserGeminiServiceTests
     }
 
     [Fact]
+    public async Task TestAsync_moves_to_next_model_after_request_timeout()
+    {
+        var handler = new TimeoutHandler(failFirstOnly: true);
+        var service = new BrowserGeminiService(new HttpClient(handler), new TestSettings());
+
+        await service.TestAsync();
+
+        Assert.Equal(2, handler.Urls.Count);
+        Assert.Contains("/gemini-3.5-flash:generateContent", handler.Urls[0], StringComparison.Ordinal);
+        Assert.Contains("/gemini-3.8-flash:generateContent", handler.Urls[1], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TestAsync_explains_timeout_on_last_model()
+    {
+        var handler = new TimeoutHandler(failFirstOnly: false);
+        var service = new BrowserGeminiService(new HttpClient(handler), new TestSettings("gemini-2.5-flash"));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.TestAsync());
+
+        Assert.Contains("nie odpowiedział w ciągu 60 sekund", exception.Message, StringComparison.Ordinal);
+        Assert.Single(handler.Urls);
+    }
+
+    [Fact]
     public async Task ParseReceiptAsync_rejects_images_over_inline_limit_before_http_request()
     {
         var handler = new StubHandler(HttpStatusCode.OK, "{}");
@@ -92,9 +118,11 @@ public sealed class BrowserGeminiServiceTests
         public string? Url { get; private set; }
         public string Body { get; private set; } = string.Empty;
         public int RequestCount { get; private set; }
+        public bool RequestTokenCanBeCanceled { get; private set; }
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             RequestCount++;
+            RequestTokenCanBeCanceled = cancellationToken.CanBeCanceled;
             Url = request.RequestUri?.OriginalString;
             Body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken);
             return new HttpResponseMessage(status) { Content = new StringContent(content) };
@@ -111,6 +139,20 @@ public sealed class BrowserGeminiServiceTests
                 ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { Content = new StringContent("{\"error\":{\"message\":\"Overloaded\"}}") }
                 : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"{\\\"ok\\\":true}\"}]}}]}") };
             return Task.FromResult(response);
+        }
+    }
+
+    private sealed class TimeoutHandler(bool failFirstOnly) : HttpMessageHandler
+    {
+        public List<string> Urls { get; } = [];
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Urls.Add(request.RequestUri!.OriginalString);
+            if (!failFirstOnly || Urls.Count == 1) throw new TaskCanceledException("Simulated request timeout");
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"{\\\"ok\\\":true}\"}]}}]}")
+            });
         }
     }
 
