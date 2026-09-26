@@ -18,3 +18,25 @@
 /* Prevent the large greeting's ascenders from touching the top edge on compact viewports. */
 .hero { padding-top: 32px; }
 .hero h1 { line-height: 1.14; padding-top: 2px; overflow: visible; }
+
+/* Editable controls must use the dark palette too; inherited light text on white fields was unreadable. */
+html[data-theme="dark"] :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea) {
+  background: var(--surface-secondary);
+  color: var(--text-primary);
+  color-scheme: dark;
+}
+
+html[data-theme="dark"] :is(input, textarea)::placeholder {
+  color: var(--text-secondary);
+  opacity: 1;
+}
+
+html[data-theme="dark"] .receipt-drop {
+  background: #202b22;
+  border-color: var(--border);
+}
+
+html[data-theme="dark"] .receipt-item.uncertain {
+  background: #2d2a20;
+  border-color: #9d7940;
+}
